@@ -1,0 +1,76 @@
+#
+# Copyright 2018-2020 IBM Corp. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+dist: focal
+
+language: python
+
+python:
+  - 3.7
+
+services:
+  - docker
+
+before_install:
+  # Replace all slashes (which are common in branch names) in VERSION with dashes for Docker compatibility
+  - if [[ "$TRAVIS_BRANCH" == "master" ]]; then
+      VERSION=latest;
+    else
+      VERSION=${TRAVIS_BRANCH//\//-};
+    fi
+
+  # Default variables (used by Jenkins)
+  - '[[ -z "$DOCKERFILE" ]] && export DOCKERFILE=Dockerfile || /bin/true'
+  - '[[ -z "$IMAGE" ]] && export IMAGE=test || /bin/true'
+  - '[[ -z "$ARCH" ]] && export ARCH=x86_64 || /bin/true'
+  - '[[ -z "$VERSION" ]] && export VERSION=jenkins || /bin/true'
+
+install:
+  - docker build --build-arg model=$MODEL -f "$DOCKERFILE" -t quay.io/codait/max-object-detector:"$IMAGE"-"$ARCH"-"$VERSION"-"$MODEL" .
+  - docker run -it -d --rm -p 5000:5000 quay.io/codait/max-object-detector:"$IMAGE"-"$ARCH"-"$VERSION"-"$MODEL"
+  - pip install -r requirements-test.txt
+
+before_script:
+  - flake8 . --max-line-length=127 --exclude utils/,protos/
+  - bandit -r .
+  - sleep 30
+
+script:
+  - pytest tests/test.py
+
+after_success:
+  - if [[ "$IMAGE" != "test" && "$TRAVIS_PULL_REQUEST" == "false" ]] && [[ "$TRAVIS_BRANCH" == "master" || "$TRAVIS_BRANCH" == "$TRAVIS_TAG" ]]; then
+      echo "$DOCKER_PASS_QUAY" | docker login -u "$DOCKER_USER_QUAY" --password-stdin quay.io;
+      docker push quay.io/codait/max-object-detector:"$IMAGE"-"$ARCH"-"$VERSION"-"$MODEL";
+    fi
+
+matrix:
+  include:
+  - os: linux
+    env: DOCKERFILE=Dockerfile IMAGE=intel ARCH=x86_64 MODEL=ssd_mobilenet_v1
+  - os: linux
+    env: DOCKERFILE=Dockerfile IMAGE=intel ARCH=x86_64 MODEL=faster_rcnn_resnet101
+  - os: linux
+    arch: arm64
+    env: DOCKERFILE=Dockerfile.arm32v7 IMAGE=arm ARCH=arm32v7 MODEL=ssd_mobilenet_v1
+    # Not enough memory on Travis CI to run this test perhaps due to a Travis CI container configuration issue. Have
+    # contacted customer service. Allow failure before we address this.
+  - os: linux
+    arch: arm64
+    env: DOCKERFILE=Dockerfile.arm32v7 IMAGE=arm ARCH=arm32v7 MODEL=faster_rcnn_resnet101 ALLOW_FAIL=true
+  allow_failures: 
+    env: DOCKERFILE=Dockerfile.arm32v7 IMAGE=arm ARCH=arm32v7 MODEL=faster_rcnn_resnet101 ALLOW_FAIL=true
+    

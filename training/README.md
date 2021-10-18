@@ -1,0 +1,1 @@
+We have removed support for training since TensorFlow v2. If you are interested in training, check out the last TensorFlow v1 of the training script at https://github.com/IBM/MAX-Object-Detector/tree/v1.5.0/training .
